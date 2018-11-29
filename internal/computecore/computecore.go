@@ -1,7 +1,7 @@
 // Windows Syscall layer for computecore.dll introduced in Windows RS5 1809 for
 // managing containers via the HCS (Host Compute Service)
 
-package hcs
+package computecore
 
 import (
 	"syscall"
