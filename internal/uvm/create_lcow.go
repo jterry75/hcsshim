@@ -332,8 +332,3 @@ func (uvm *UtilityVM) listenVsock(port uint32) (net.Listener, error) {
 	binary.LittleEndian.PutUint32(serviceID[0:4], port)
 	return hvsock.Listen(hvsock.Addr{VMID: vmID, ServiceID: serviceID})
 }
-
-// PMemMaxSizeBytes returns the maximum size of a PMEM layer (LCOW)
-func (uvm *UtilityVM) PMemMaxSizeBytes() uint64 {
-	return uvm.vpmemMaxSizeBytes
-}

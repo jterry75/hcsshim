@@ -7,6 +7,7 @@ import (
 	"net"
 	"syscall"
 
+	"github.com/Microsoft/hcsshim/internal/logfields"
 	"github.com/sirupsen/logrus"
 )
 
@@ -59,7 +60,20 @@ func forwardGcsLogs(l net.Listener) {
 }
 
 // Start synchronously starts the utility VM.
-func (uvm *UtilityVM) Start() error {
+func (uvm *UtilityVM) Start() (err error) {
+	fields := logrus.Fields{
+		logfields.UVMID: uvm.id,
+	}
+	logrus.WithFields(fields).Debugf("uvm::Start - Begin Operation")
+	defer func() {
+		if err != nil {
+			fields[logrus.ErrorKey] = err
+			logrus.WithFields(fields).Error("uvm::Start - End Operation - Error")
+		} else {
+			logrus.WithFields(fields).Debug("uvm::Start - End Operation - Success")
+		}
+	}()
+
 	if uvm.gcslog != nil {
 		go forwardGcsLogs(uvm.gcslog)
 		uvm.gcslog = nil

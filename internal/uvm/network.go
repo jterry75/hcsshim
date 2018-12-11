@@ -8,6 +8,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/guestrequest"
 	"github.com/Microsoft/hcsshim/internal/guid"
 	"github.com/Microsoft/hcsshim/internal/hns"
+	"github.com/Microsoft/hcsshim/internal/logfields"
 	"github.com/Microsoft/hcsshim/internal/requesttype"
 	"github.com/Microsoft/hcsshim/internal/schema1"
 	"github.com/Microsoft/hcsshim/internal/schema2"
@@ -17,6 +18,11 @@ import (
 
 // AddNetNS adds network namespace inside the guest & adds endpoints to the guest on that namepace
 func (uvm *UtilityVM) AddNetNS(id string, endpoints []*hns.HNSEndpoint) (err error) {
+	logrus.WithFields(logrus.Fields{
+		logfields.UVMID: uvm.id,
+		"namespace-id":  id,
+	}).Debug("uvm::AddNetNS")
+
 	uvm.m.Lock()
 	defer uvm.m.Unlock()
 	ns := uvm.namespaces[id]
@@ -69,6 +75,11 @@ func (uvm *UtilityVM) AddNetNS(id string, endpoints []*hns.HNSEndpoint) (err err
 
 //RemoveNetNS removes the namespace information
 func (uvm *UtilityVM) RemoveNetNS(id string) error {
+	logrus.WithFields(logrus.Fields{
+		logfields.UVMID: uvm.id,
+		"namespace-id":  id,
+	}).Debug("uvm::RemoveNetNS")
+
 	uvm.m.Lock()
 	defer uvm.m.Unlock()
 	ns := uvm.namespaces[id]

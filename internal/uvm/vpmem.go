@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Microsoft/hcsshim/internal/guestrequest"
+	"github.com/Microsoft/hcsshim/internal/logfields"
 	"github.com/Microsoft/hcsshim/internal/requesttype"
 	"github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
@@ -46,11 +47,15 @@ func (uvm *UtilityVM) findVPMEMDevice(findThisHostPath string) (uint32, string, 
 // Returns the location(0..MaxVPMEM-1) where the device is attached, and if exposed,
 // the utility VM path which will be /tmp/p<location>//
 func (uvm *UtilityVM) AddVPMEM(hostPath string, expose bool) (uint32, string, error) {
+	logrus.WithFields(logrus.Fields{
+		logfields.UVMID: uvm.id,
+		"hostPath":      hostPath,
+		"expose":        expose,
+	}).Debugf("uvm::AddVPMEM")
+
 	if uvm.operatingSystem != "linux" {
 		return 0, "", errNotSupported
 	}
-
-	logrus.Debugf("uvm::AddVPMEM id:%s hostPath:%s expose:%t", uvm.id, hostPath, expose)
 
 	uvm.m.Lock()
 	defer uvm.m.Unlock()
@@ -140,7 +145,12 @@ func (uvm *UtilityVM) RemoveVPMEM(hostPath string) error {
 // removeVPMEM is the internally callable "unsafe" version of RemoveVPMEM. The mutex
 // MUST be held when calling this function.
 func (uvm *UtilityVM) removeVPMEM(hostPath string, uvmPath string, deviceNumber uint32) error {
-	logrus.Debugf("uvm::RemoveVPMEM id:%s hostPath:%s device:%d", uvm.id, hostPath, deviceNumber)
+	logrus.WithFields(logrus.Fields{
+		logfields.UVMID: uvm.id,
+		"hostPath":      hostPath,
+		"uvmPath":       uvmPath,
+		"deviceNumber":  deviceNumber,
+	}).Debugf("uvm::removeVPMEM")
 
 	if uvm.vpmemDevices[deviceNumber].refCount == 1 {
 		modification := &hcsschema.ModifySettingRequest{
@@ -167,4 +177,9 @@ func (uvm *UtilityVM) removeVPMEM(hostPath string, uvmPath string, deviceNumber 
 	logrus.Debugf("uvm::RemoveVPMEM: Success id:%s hostPath:%s device:%d refCount:%d", uvm.id, hostPath, deviceNumber, uvm.vpmemDevices[deviceNumber].refCount)
 	return nil
 
+}
+
+// PMemMaxSizeBytes returns the maximum size of a PMEM layer (LCOW)
+func (uvm *UtilityVM) PMemMaxSizeBytes() uint64 {
+	return uvm.vpmemMaxSizeBytes
 }

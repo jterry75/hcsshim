@@ -12,13 +12,22 @@ import (
 
 // AddPlan9 adds a Plan9 share to a utility VM. Each Plan9 share is ref-counted and
 // only added if it isn't already.
-func (uvm *UtilityVM) AddPlan9(hostPath string, uvmPath string, readOnly bool) error {
-	logrus.WithFields(logrus.Fields{
+func (uvm *UtilityVM) AddPlan9(hostPath string, uvmPath string, readOnly bool) (err error) {
+	fields := logrus.Fields{
 		logfields.UVMID: uvm.id,
 		"host-path":     hostPath,
 		"uvm-path":      uvmPath,
 		"readOnly":      readOnly,
-	}).Debug("uvm::AddPlan9")
+	}
+	logrus.WithFields(fields).Debug("uvm::AddPlan9 - Begin Operation")
+	defer func() {
+		if err != nil {
+			fields[logrus.ErrorKey] = err
+			logrus.WithFields(fields).Error("uvm::AddPlan9 - End Operation - Error")
+		} else {
+			logrus.WithFields(fields).Debug("uvm::AddPlan9 - End Operation - Success")
+		}
+	}()
 
 	if uvm.operatingSystem != "linux" {
 		return errNotSupported
@@ -66,47 +75,56 @@ func (uvm *UtilityVM) AddPlan9(hostPath string, uvmPath string, readOnly bool) e
 	} else {
 		uvm.plan9Shares[hostPath].refCount++
 	}
-	logrus.Debugf("hcsshim::AddPlan9 Success %s: refcount=%d %+v", hostPath, uvm.plan9Shares[hostPath].refCount, uvm.plan9Shares[hostPath])
+	fields["refCount"] = uvm.plan9Shares[hostPath].refCount
 	return nil
 }
 
 // RemovePlan9 removes a Plan9 share from a utility VM. Each Plan9 share is ref-counted
 // and only actually removed when the ref-count drops to zero.
-func (uvm *UtilityVM) RemovePlan9(hostPath string) error {
+func (uvm *UtilityVM) RemovePlan9(hostPath string) (err error) {
+	fields := logrus.Fields{
+		logfields.UVMID: uvm.id,
+		"host-path":     hostPath,
+	}
+	logrus.WithFields(fields).Debug("uvm::RemovePlan9 - Begin Operation")
+	defer func() {
+		if err != nil {
+			fields[logrus.ErrorKey] = err
+			logrus.WithFields(fields).Error("uvm::RemovePlan9 - End Operation - Error")
+		} else {
+			logrus.WithFields(fields).Debug("uvm::RemovePlan9 - End Operation - Success")
+		}
+	}()
+
 	if uvm.operatingSystem != "linux" {
 		return errNotSupported
 	}
-	logrus.Debugf("uvm::RemovePlan9 %s id:%s", hostPath, uvm.id)
+
 	uvm.m.Lock()
 	defer uvm.m.Unlock()
-	if _, ok := uvm.plan9Shares[hostPath]; !ok {
-		return fmt.Errorf("%s is not present as a Plan9 share in %s, cannot remove", hostPath, uvm.id)
+	share, ok := uvm.plan9Shares[hostPath]
+	if !ok {
+		return ErrNotAttached
 	}
-	return uvm.removePlan9(hostPath, uvm.plan9Shares[hostPath].uvmPath)
-}
 
-// removePlan9 is the internally callable "unsafe" version of RemovePlan9. The mutex
-// MUST be held when calling this function.
-func (uvm *UtilityVM) removePlan9(hostPath, uvmPath string) error {
-	uvm.plan9Shares[hostPath].refCount--
-	if uvm.plan9Shares[hostPath].refCount > 0 {
-		logrus.Debugf("uvm::RemovePlan9 Success %s id:%s Ref-count now %d. It is still present in the utility VM", hostPath, uvm.id, uvm.plan9Shares[hostPath].refCount)
+	share.refCount--
+	fields["refCount"] = share.refCount
+	if share.refCount > 0 {
 		return nil
 	}
-	logrus.Debugf("uvm::RemovePlan9 Zero ref-count, removing. %s id:%s", hostPath, uvm.id)
 	modification := &hcsschema.ModifySettingRequest{
 		RequestType: requesttype.Remove,
 		Settings: hcsschema.Plan9Share{
-			Name: fmt.Sprintf("%d", uvm.plan9Shares[hostPath].idCounter),
-			Port: uvm.plan9Shares[hostPath].port,
+			Name: fmt.Sprintf("%d", share.idCounter),
+			Port: share.port,
 		},
 		ResourcePath: fmt.Sprintf("VirtualMachine/Devices/Plan9/Shares"),
 		GuestRequest: guestrequest.GuestRequest{
 			ResourceType: guestrequest.ResourceTypeMappedDirectory,
 			RequestType:  requesttype.Remove,
 			Settings: guestrequest.LCOWMappedDirectory{
-				MountPath: uvm.plan9Shares[hostPath].uvmPath,
-				Port:      uvm.plan9Shares[hostPath].port,
+				MountPath: share.uvmPath,
+				Port:      share.port,
 			},
 		},
 	}
@@ -114,6 +132,5 @@ func (uvm *UtilityVM) removePlan9(hostPath, uvmPath string) error {
 		return fmt.Errorf("failed to remove plan9 share %s from %s: %+v: %s", hostPath, uvm.id, modification, err)
 	}
 	delete(uvm.plan9Shares, hostPath)
-	logrus.Debugf("uvm::RemovePlan9 Success %s id:%s successfully removed from utility VM", hostPath, uvm.id)
 	return nil
 }
