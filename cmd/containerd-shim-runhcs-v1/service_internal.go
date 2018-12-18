@@ -8,6 +8,28 @@ import (
 	google_protobuf1 "github.com/gogo/protobuf/types"
 )
 
+// TaskTarget is an inderection between the container you want to create and the
+// target you would like to create it in. There are three classes of targets:
+//
+// 1. The Windows host. This target can be used to create V1 Argon (on RS1, RS3,
+// RS4 hosts), V1 Xenon (on RS1, RS3, RS4 hosts), and V2 Argon (on RS5+ hosts).
+//
+// 2. The Windows VM. This target can be used to create V1 Argons (on RS1, RS3,
+// RS5 guests), and V2 Argons (on RS5+ guests).
+//
+// 3. The Linux VM. This target can be used to create Linux Containers on RS5+
+// hosts.
+type TaskTarget interface {
+	CreateContainer() error
+	GetContainer(id string) error
+}
+
+type Container interface {
+	State() (*task.StateResponse, error)
+	Start() (*task.StartResponse, error)
+	Delete() (*task.DeleteResponse, error)
+}
+
 func (s *service) stateInternal(ctx context.Context, req *task.StateRequest) (*task.StateResponse, error) {
 	return nil, errdefs.ErrNotImplemented
 }
