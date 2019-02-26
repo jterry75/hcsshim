@@ -7,7 +7,9 @@ package hcsoci
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/Microsoft/hcsshim/internal/guestrequest"
@@ -78,7 +80,7 @@ func allocateWindowsResources(coi *createOptionsInternal, resources *Resources) 
 		}
 
 		if coi.HostingSystem != nil && schemaversion.IsV21(coi.actualSchemaVersion) {
-			uvmPath := fmt.Sprintf("C:\\%s\\%d", coi.actualID, i)
+			uvmPath := path.Join(resources.containerRootInUVM, mountPathPrefix+strconv.Itoa(i))
 
 			readOnly := false
 			for _, o := range mount.Options {
