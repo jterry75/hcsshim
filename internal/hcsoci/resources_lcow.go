@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Microsoft/hcsshim/internal/log"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -24,7 +23,6 @@ func allocateLinuxResources(ctx context.Context, coi *createOptionsInternal, res
 		coi.Spec.Root = &specs.Root{}
 	}
 	if coi.Spec.Windows != nil && len(coi.Spec.Windows.LayerFolders) > 0 {
-		log.G(ctx).Debug("hcsshim::allocateLinuxResources mounting storage")
 		rootPath, err := MountContainerLayers(ctx, coi.Spec.Windows.LayerFolders, resources.containerRootInUVM, coi.HostingSystem)
 		if err != nil {
 			return fmt.Errorf("failed to mount container storage: %s", err)
@@ -76,9 +74,7 @@ func allocateLinuxResources(ctx context.Context, coi *createOptionsInternal, res
 					break
 				}
 			}
-			l := log.G(ctx).WithField("mount", fmt.Sprintf("%+v", mount))
 			if mount.Type == "physical-disk" {
-				l.Debug("hcsshim::allocateLinuxResources Hot-adding SCSI physical disk for OCI mount")
 				_, _, err := coi.HostingSystem.AddSCSIPhysicalDisk(ctx, hostPath, uvmPathForShare, readOnly)
 				if err != nil {
 					return fmt.Errorf("adding SCSI physical disk mount %+v: %s", mount, err)
@@ -86,7 +82,6 @@ func allocateLinuxResources(ctx context.Context, coi *createOptionsInternal, res
 				resources.scsiMounts = append(resources.scsiMounts, scsiMount{path: hostPath})
 				coi.Spec.Mounts[i].Type = "none"
 			} else if mount.Type == "virtual-disk" || mount.Type == "automanage-virtual-disk" {
-				l.Debug("hcsshim::allocateLinuxResources Hot-adding SCSI virtual disk for OCI mount")
 				_, _, err := coi.HostingSystem.AddSCSI(ctx, hostPath, uvmPathForShare, readOnly)
 				if err != nil {
 					return fmt.Errorf("adding SCSI virtual disk mount %+v: %s", mount, err)
@@ -113,7 +108,6 @@ func allocateLinuxResources(ctx context.Context, coi *createOptionsInternal, res
 					restrictAccess = true
 					uvmPathForFile = path.Join(uvmPathForShare, fileName)
 				}
-				l.Debug("hcsshim::allocateLinuxResources Hot-adding Plan9 for OCI mount")
 				share, err := coi.HostingSystem.AddPlan9(ctx, hostPath, uvmPathForShare, readOnly, restrictAccess, allowedNames)
 				if err != nil {
 					return fmt.Errorf("adding plan9 mount %+v: %s", mount, err)

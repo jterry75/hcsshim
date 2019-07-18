@@ -14,12 +14,15 @@ import (
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/hcs"
 	"github.com/Microsoft/hcsshim/internal/log"
+	"github.com/Microsoft/hcsshim/internal/logfields"
+	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/oci"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"go.opencensus.io/trace"
 )
 
 var (
@@ -68,6 +71,10 @@ type createOptionsInternal struct {
 // release the resources on failure, so that the client can make the necessary
 // call to release resources that have been allocated as part of calling this function.
 func CreateContainer(ctx context.Context, createOptions *CreateOptions) (_ cow.Container, _ *Resources, err error) {
+	ctx, span := trace.StartSpan(ctx, "hcsoci::CreateContainer")
+	defer span.End()
+	defer func() { oc.SetSpanStatus(span, err) }()
+
 	coi := &createOptionsInternal{
 		CreateOptions: createOptions,
 		actualID:      createOptions.ID,
@@ -86,6 +93,10 @@ func CreateContainer(ctx context.Context, createOptions *CreateOptions) (_ cow.C
 		coi.actualOwner = filepath.Base(os.Args[0])
 	}
 
+	span.AddAttributes(
+		trace.StringAttribute(logfields.ContainerID, coi.actualID),
+		trace.StringAttribute("owner", coi.actualOwner))
+
 	if coi.Spec == nil {
 		return nil, nil, fmt.Errorf("Spec must be supplied")
 	}
@@ -100,7 +111,7 @@ func CreateContainer(ctx context.Context, createOptions *CreateOptions) (_ cow.C
 	log.G(ctx).WithFields(logrus.Fields{
 		"options": fmt.Sprintf("%+v", createOptions),
 		"schema":  coi.actualSchemaVersion,
-	}).Debug("hcsshim::CreateContainer")
+	}).Debug("create options")
 
 	resources := &Resources{
 		id: createOptions.ID,
@@ -165,32 +176,25 @@ func CreateContainer(ctx context.Context, createOptions *CreateOptions) (_ cow.C
 	}
 
 	var hcsDocument, gcsDocument interface{}
-	log.G(ctx).Debug("hcsshim::CreateContainer allocating resources")
 	if coi.Spec.Linux != nil {
 		if schemaversion.IsV10(coi.actualSchemaVersion) {
 			return nil, resources, errors.New("LCOW v1 not supported")
 		}
-		log.G(ctx).Debug("hcsshim::CreateContainer allocateLinuxResources")
 		err = allocateLinuxResources(ctx, coi, resources)
 		if err != nil {
-			log.G(ctx).WithError(err).Debug("failed to allocateLinuxResources")
 			return nil, resources, err
 		}
 		gcsDocument, err = createLinuxContainerDocument(ctx, coi, resources.containerRootInUVM)
 		if err != nil {
-			log.G(ctx).WithError(err).Debug("failed createHCSContainerDocument")
 			return nil, resources, err
 		}
 	} else {
 		err = allocateWindowsResources(ctx, coi, resources)
 		if err != nil {
-			log.G(ctx).WithError(err).Debug("failed to allocateWindowsResources")
 			return nil, resources, err
 		}
-		log.G(ctx).Debug("hcsshim::CreateContainer creating container document")
 		v1, v2, err := createWindowsContainerDocument(ctx, coi)
 		if err != nil {
-			log.G(ctx).WithError(err).Debug("failed createHCSContainerDocument")
 			return nil, resources, err
 		}
 
@@ -214,7 +218,6 @@ func CreateContainer(ctx context.Context, createOptions *CreateOptions) (_ cow.C
 		}
 	}
 
-	log.G(ctx).Debug("hcsshim::CreateContainer creating compute system")
 	if gcsDocument != nil {
 		c, err := coi.HostingSystem.CreateContainer(ctx, coi.actualID, gcsDocument)
 		if err != nil {

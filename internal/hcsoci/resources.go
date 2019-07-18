@@ -6,9 +6,11 @@ import (
 
 	"github.com/Microsoft/hcsshim/internal/hns"
 	"github.com/Microsoft/hcsshim/internal/log"
+	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/ospath"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 	"github.com/sirupsen/logrus"
+	"go.opencensus.io/trace"
 )
 
 const (
@@ -77,10 +79,17 @@ type scsiMount struct {
 }
 
 // TODO: Method on the resources?
-func ReleaseResources(ctx context.Context, r *Resources, vm *uvm.UtilityVM, all bool) error {
+func ReleaseResources(ctx context.Context, r *Resources, vm *uvm.UtilityVM, all bool) (err error) {
+	ctx, span := trace.StartSpan(ctx, "hcsoci::ReleaseResources")
+	defer span.End()
+	defer func() { oc.SetSpanStatus(span, err) }()
+	span.AddAttributes(
+		trace.StringAttribute("uvm-id", vm.ID()),
+		trace.BoolAttribute("all", all))
+
 	if vm != nil && r.addedNetNSToVM {
 		if err := vm.RemoveNetNS(ctx, r.netNS); err != nil {
-			log.G(ctx).Warn(err)
+			logrus.Warn(err)
 		}
 		r.addedNetNSToVM = false
 	}
@@ -93,10 +102,6 @@ func ReleaseResources(ctx context.Context, r *Resources, vm *uvm.UtilityVM, all 
 				if !os.IsNotExist(err) {
 					return err
 				}
-				log.G(ctx).WithFields(logrus.Fields{
-					"endpointID": endpoint,
-					"netID":      r.NetNS(),
-				}).Warn("removing endpoint from namespace: does not exist")
 			}
 			r.networkEndpoints = r.networkEndpoints[:len(r.networkEndpoints)-1]
 		}

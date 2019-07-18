@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Microsoft/hcsshim/internal/log"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
 	"github.com/Microsoft/hcsshim/internal/uvm"
@@ -47,7 +46,6 @@ func allocateWindowsResources(ctx context.Context, coi *createOptionsInternal, r
 	}
 
 	if coi.Spec.Root.Path == "" && (coi.HostingSystem != nil || coi.Spec.Windows.HyperV == nil) {
-		log.G(ctx).Debug("hcsshim::allocateWindowsResources mounting storage")
 		containerRootPath, err := MountContainerLayers(ctx, coi.Spec.Windows.LayerFolders, resources.containerRootInUVM, coi.HostingSystem)
 		if err != nil {
 			return fmt.Errorf("failed to mount container storage: %s", err)
@@ -86,9 +84,7 @@ func allocateWindowsResources(ctx context.Context, coi *createOptionsInternal, r
 					break
 				}
 			}
-			l := log.G(ctx).WithField("mount", fmt.Sprintf("%+v", mount))
 			if mount.Type == "physical-disk" {
-				l.Debug("hcsshim::allocateWindowsResources Hot-adding SCSI physical disk for OCI mount")
 				_, _, err := coi.HostingSystem.AddSCSIPhysicalDisk(ctx, mount.Source, uvmPath, readOnly)
 				if err != nil {
 					return fmt.Errorf("adding SCSI physical disk mount %+v: %s", mount, err)
@@ -96,7 +92,6 @@ func allocateWindowsResources(ctx context.Context, coi *createOptionsInternal, r
 				coi.Spec.Mounts[i].Type = ""
 				resources.scsiMounts = append(resources.scsiMounts, scsiMount{path: mount.Source})
 			} else if mount.Type == "virtual-disk" || mount.Type == "automanage-virtual-disk" {
-				l.Debug("hcsshim::allocateWindowsResources Hot-adding SCSI virtual disk for OCI mount")
 				_, _, err := coi.HostingSystem.AddSCSI(ctx, mount.Source, uvmPath, readOnly)
 				if err != nil {
 					return fmt.Errorf("adding SCSI virtual disk mount %+v: %s", mount, err)
@@ -110,7 +105,6 @@ func allocateWindowsResources(ctx context.Context, coi *createOptionsInternal, r
 					}
 					resources.pipeMounts = append(resources.pipeMounts, mount.Source)
 				} else {
-					l.Debug("hcsshim::allocateWindowsResources Hot-adding VSMB share for OCI mount")
 					options := &hcsschema.VirtualSmbShareOptions{}
 					if readOnly {
 						options.ReadOnly = true

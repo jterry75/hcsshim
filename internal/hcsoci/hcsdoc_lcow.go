@@ -6,13 +6,12 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/Microsoft/hcsshim/internal/log"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
-func createLCOWSpec(coi *createOptionsInternal) (*specs.Spec, error) {
+func createLCOWSpec(ctx context.Context, coi *createOptionsInternal) (*specs.Spec, error) {
 	// Remarshal the spec to perform a deep copy.
 	j, err := json.Marshal(coi.Spec)
 	if err != nil {
@@ -61,12 +60,11 @@ type linuxHostedSystem struct {
 }
 
 func createLinuxContainerDocument(ctx context.Context, coi *createOptionsInternal, guestRoot string) (*linuxHostedSystem, error) {
-	spec, err := createLCOWSpec(coi)
+	spec, err := createLCOWSpec(ctx, coi)
 	if err != nil {
 		return nil, err
 	}
 
-	log.G(ctx).WithField("guestRoot", guestRoot).Debug("hcsshim::createLinuxContainerDoc")
 	return &linuxHostedSystem{
 		SchemaVersion:    schemaversion.SchemaV21(),
 		OciBundlePath:    guestRoot,

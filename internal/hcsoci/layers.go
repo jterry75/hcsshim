@@ -8,12 +8,14 @@ import (
 	"path/filepath"
 
 	"github.com/Microsoft/hcsshim/internal/log"
+	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/ospath"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 	uvmpkg "github.com/Microsoft/hcsshim/internal/uvm"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
 	"github.com/pkg/errors"
+	"go.opencensus.io/trace"
 )
 
 // MountContainerLayers is a helper for clients to hide all the complexity of layer mounting
@@ -26,7 +28,9 @@ import (
 //                    of the layers are the VSMB locations where the read-only layers are mounted.
 //
 func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot string, uvm *uvmpkg.UtilityVM) (_ string, err error) {
-	log.G(ctx).WithField("layerFolders", layerFolders).Debug("hcsshim::mountContainerLayers")
+	ctx, span := trace.StartSpan(ctx, "hcsoci::MountContainerLayers")
+	defer span.End()
+	defer func() { oc.SetSpanStatus(span, err) }()
 
 	if uvm == nil {
 		if len(layerFolders) < 2 {
@@ -60,7 +64,6 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 	}
 
 	// V2 UVM
-	log.G(ctx).WithField("os", uvm.OS()).Debug("hcsshim::mountContainerLayers V2 UVM")
 
 	var (
 		layersAdded       []string
@@ -156,7 +159,6 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 	if err != nil {
 		return "", err
 	}
-	log.G(ctx).Debug("hcsshim::mountContainerLayers Succeeded")
 	return rootfs, nil
 }
 
@@ -176,8 +178,11 @@ const (
 )
 
 // UnmountContainerLayers is a helper for clients to hide all the complexity of layer unmounting
-func UnmountContainerLayers(ctx context.Context, layerFolders []string, containerRootPath string, uvm *uvmpkg.UtilityVM, op UnmountOperation) error {
-	log.G(ctx).WithField("layerFolders", layerFolders).Debug("hcsshim::unmountContainerLayers")
+func UnmountContainerLayers(ctx context.Context, layerFolders []string, containerRootPath string, uvm *uvmpkg.UtilityVM, op UnmountOperation) (err error) {
+	ctx, span := trace.StartSpan(ctx, "hcsoci::UnmountContainerLayers")
+	defer span.End()
+	defer func() { oc.SetSpanStatus(span, err) }()
+
 	if uvm == nil {
 		// Must be an argon - folders are mounted on the host
 		if op != UnmountOperationAll {

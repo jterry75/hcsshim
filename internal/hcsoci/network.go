@@ -6,16 +6,15 @@ import (
 	"github.com/Microsoft/hcsshim/internal/hns"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/logfields"
+	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/sirupsen/logrus"
+	"go.opencensus.io/trace"
 )
 
-func createNetworkNamespace(ctx context.Context, coi *createOptionsInternal, resources *Resources) error {
-	op := "hcsoci::createNetworkNamespace"
-	l := log.G(ctx).WithField(logfields.ContainerID, coi.ID)
-	l.Debug(op + " - Begin")
-	defer func() {
-		l.Debug(op + " - End")
-	}()
+func createNetworkNamespace(ctx context.Context, coi *createOptionsInternal, resources *Resources) (err error) {
+	ctx, span := trace.StartSpan(ctx, "hcsoci::createNetworkNamespace")
+	defer span.End()
+	defer func() { oc.SetSpanStatus(span, err) }()
 
 	netID, err := hns.CreateNamespace()
 	if err != nil {
@@ -42,13 +41,11 @@ func createNetworkNamespace(ctx context.Context, coi *createOptionsInternal, res
 }
 
 // GetNamespaceEndpoints gets all endpoints in `netNS`
-func GetNamespaceEndpoints(ctx context.Context, netNS string) ([]*hns.HNSEndpoint, error) {
-	op := "hcsoci::GetNamespaceEndpoints"
-	l := log.G(ctx).WithField("netns-id", netNS)
-	l.Debug(op + " - Begin")
-	defer func() {
-		l.Debug(op + " - End")
-	}()
+func GetNamespaceEndpoints(ctx context.Context, netNS string) (_ []*hns.HNSEndpoint, err error) {
+	ctx, span := trace.StartSpan(ctx, "hcsoci::GetNamespaceEndpoints")
+	defer span.End()
+	defer func() { oc.SetSpanStatus(span, err) }()
+	span.AddAttributes(trace.StringAttribute("netns-id", netNS))
 
 	ids, err := hns.GetNamespaceEndpoints(netNS)
 	if err != nil {
