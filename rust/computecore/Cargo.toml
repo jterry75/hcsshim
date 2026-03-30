@@ -1,0 +1,22 @@
+# Copyright (C) Microsoft Corporation. All rights reserved.
+
+[package]
+edition.workspace = true
+rust-version.workspace = true
+name = "computecore"
+version = "0.1.0"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+serde_repr.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_HostComputeSystem",
+] }
+
+[lints]
+workspace = true

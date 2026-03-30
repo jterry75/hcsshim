@@ -1,0 +1,16 @@
+# Copyright (C) Microsoft Corporation. All rights reserved.
+
+[package]
+edition.workspace = true
+rust-version.workspace = true
+name = "oci-spec"
+version = "0.1.0"
+description = "OCI runtime-spec types for Rust, derived from opencontainers/runtime-spec"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

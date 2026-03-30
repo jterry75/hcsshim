@@ -1,0 +1,28 @@
+# Copyright (C) Microsoft Corporation. All rights reserved.
+
+[package]
+edition.workspace = true
+rust-version.workspace = true
+name = "named_pipe_connector"
+version = "0.1.0"
+
+[dependencies]
+anyhow.workspace = true
+futures.workspace = true
+hyper-util.workspace = true
+pin-project-lite.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+tower = { workspace = true, features = ["util"] }
+windows = { workspace = true, features = [
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+rand.workspace = true

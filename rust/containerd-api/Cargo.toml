@@ -1,0 +1,21 @@
+# Copyright (C) Microsoft Corporation. All rights reserved.
+
+[package]
+edition.workspace = true
+rust-version.workspace = true
+name = "containerd-api"
+version = "0.1.0"
+description = "Rust bindings for the containerd gRPC APIs (Task v3, Sandbox v1)"
+
+[dependencies]
+prost.workspace = true
+prost-types.workspace = true
+tonic.workspace = true
+tonic-prost.workspace = true
+
+[build-dependencies]
+tonic-build.workspace = true
+tonic-prost-build.workspace = true
+
+[lints]
+workspace = true

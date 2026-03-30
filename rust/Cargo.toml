@@ -1,0 +1,104 @@
+# Copyright (C) Microsoft Corporation. All rights reserved.
+
+[workspace]
+members = [
+    "computecore",
+    "computenetwork",
+    "computestorage",
+    "containerd-api",
+    "containerd-shim-process-v2",
+    "named_pipe_connector",
+    "oci-spec",
+    "virtualdisk",
+]
+
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.90"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+computecore = { path = "computecore" }
+containerd-api = { path = "containerd-api" }
+futures = "0.3"
+hyper-util = "0.1"
+named_pipe_connector = { path = "named_pipe_connector" }
+oci-spec = { path = "oci-spec" }
+pin-project-lite = "0.2"
+prost = "0.14"
+prost-types = "0.14"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_repr = "0.1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+tonic = "0.14"
+tonic-build = "0.14"
+tonic-prost = "0.14"
+tonic-prost-build = "0.14"
+tower = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+virtualdisk = { path = "virtualdisk" }
+windows = "0.62"
+
+[profile.dev]
+panic = 'abort'
+
+[profile.release]
+panic = 'abort'
+
+[workspace.lints.rust]
+ambiguous_wide_pointer_comparisons = "deny"
+const_item_mutation = "deny"
+dangling_pointers_from_temporaries = "deny"
+dead_code = "warn"
+deref_nullptr = "deny"
+dropping_references = "deny"
+forgetting_references = "deny"
+invalid_from_utf8 = "deny"
+invalid_value = "deny"
+unconditional_recursion = "deny"
+unused_assignments = "deny"
+unused_imports = "deny"
+unused_must_use = "deny"
+unused_mut = "deny"
+unused_unsafe = "deny"
+unused_variables = "deny"
+useless_ptr_null_checks = "deny"
+
+
+[workspace.lints.clippy]
+large_enum_variant = "allow"
+result_large_err = "allow"
+await_holding_lock = "warn"
+dbg_macro = "warn"
+debug_assert_with_mut_call = "warn"
+filter_map_next = "warn"
+fn_params_excessive_bools = "warn"
+imprecise_flops = "warn"
+implicit_clone = "warn"
+inefficient_to_string = "warn"
+linkedlist = "warn"
+lossy_float_literal = "warn"
+macro_use_imports = "warn"
+needless_continue = "warn"
+option_option = "warn"
+ref_option_ref = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+suboptimal_flops = "warn"
+unnecessary_box_returns = "warn"
+collapsible_else_if = "allow"
+collapsible_if = "allow"
+len_without_is_empty = "allow"
+new_without_default = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"
+manual_flatten = "allow"
+bool_assert_comparison = "allow"
+box_default = "allow"
+uninlined_format_args = "allow"

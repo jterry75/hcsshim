@@ -1,0 +1,18 @@
+# Copyright (C) Microsoft Corporation. All rights reserved.
+
+[package]
+edition.workspace = true
+rust-version.workspace = true
+name = "computestorage"
+version = "0.1.0"
+
+[dependencies]
+tokio.workspace = true
+virtualdisk.workspace = true
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_HostComputeSystem"
+] }
+
+[lints]
+workspace = true

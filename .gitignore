@@ -51,3 +51,6 @@ go.work.sum
 # keys and related artifacts
 *.pem
 *.cose
+
+# Rust
+rust/target/

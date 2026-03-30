@@ -1,0 +1,42 @@
+# Copyright (C) Microsoft Corporation. All rights reserved.
+
+[package]
+edition.workspace = true
+rust-version.workspace = true
+name = "containerd-shim-process-v2"
+version = "0.1.0"
+
+[[bin]]
+name = "containerd-shim-process-v2"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+computecore.workspace = true
+containerd-api.workspace = true
+named_pipe_connector.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+oci-spec.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Console",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_JobObjects",
+] }
+
+[lints]
+workspace = true
