@@ -6,77 +6,71 @@ import (
 	"context"
 	"time"
 
-	"github.com/Microsoft/hcsshim/internal/log"
+	"github.com/Microsoft/hcsshim/internal/computecore"
 )
 
-func processAsyncHcsResult(
-	ctx context.Context,
-	err error,
-	resultJSON string,
-	callbackNumber uintptr,
-	expectedNotification hcsNotification,
-	timeout *time.Duration,
-) ([]ErrorEvent, error) {
-	events := processHcsResult(ctx, resultJSON)
-	if IsPending(err) {
-		return nil, waitForNotification(ctx, callbackNumber, expectedNotification, timeout)
+// withOperation creates an HCS operation, calls fn with it, waits for the result,
+// and returns the result document. This keeps operation lifecycle as an internal detail.
+func withOperation(ctx context.Context, fn func(op computecore.HcsOperation) error) (string, error) {
+	op, err := computecore.HcsCreateOperation(ctx, 0, 0)
+	if err != nil {
+		return "", err
+	}
+	defer computecore.HcsCloseOperation(ctx, op)
+
+	err = fn(op)
+	if err != nil {
+		// Any error, means the operation was not successfully even started. In
+		// this case, the WaitForOperationResult will not be valid. Just close
+		// the operation and return the call result.
+		return "", err
 	}
 
-	return events, err
+	return computecore.HcsWaitForOperationResult(ctx, op, 0xFFFFFFFF)
 }
 
-func waitForNotification(
-	ctx context.Context,
-	callbackNumber uintptr,
-	expectedNotification hcsNotification,
-	timeout *time.Duration,
-) error {
-	callbackMapLock.RLock()
-	if _, ok := callbackMap[callbackNumber]; !ok {
-		callbackMapLock.RUnlock()
-		log.G(ctx).WithField("callbackNumber", callbackNumber).Error("failed to waitForNotification: callbackNumber does not exist in callbackMap")
-		return ErrHandleClose
+// withOperationTimeout is like withOperation but cancels the wait after the given
+// timeout, returning ErrTimeout. A nil timeout means wait indefinitely.
+func withOperationTimeout(ctx context.Context, t *time.Duration, fn func(op computecore.HcsOperation) error) (string, error) {
+	op, err := computecore.HcsCreateOperation(ctx, 0, 0)
+	if err != nil {
+		return "", err
 	}
-	channels := callbackMap[callbackNumber].channels
-	callbackMapLock.RUnlock()
+	defer computecore.HcsCloseOperation(ctx, op)
 
-	expectedChannel := channels[expectedNotification]
-	if expectedChannel == nil {
-		log.G(ctx).WithField("type", expectedNotification).Error("unknown notification type in waitForNotification")
-		return ErrInvalidNotificationType
+	err = fn(op)
+	if err != nil {
+		// Any error, means the operation was not successfully even started. In
+		// this case, the WaitForOperationResult will not be valid. Just close
+		// the operation and return the call result.
+		return "", err
 	}
 
-	var c <-chan time.Time
-	if timeout != nil {
-		timer := time.NewTimer(*timeout)
-		c = timer.C
-		defer timer.Stop()
+	type waitResult struct {
+		doc string
+		err error
+	}
+	done := make(chan waitResult, 1)
+	go func() {
+		doc, e := computecore.HcsWaitForOperationResult(ctx, op, 0xFFFFFFFF)
+		done <- waitResult{doc, e}
+	}()
+
+	var timer <-chan time.Time
+	if t != nil {
+		tmr := time.NewTimer(*t)
+		timer = tmr.C
+		defer tmr.Stop()
 	}
 
 	select {
-	case err, ok := <-expectedChannel:
-		if !ok {
-			return ErrHandleClose
-		}
-		return err
-	case err, ok := <-channels[hcsNotificationSystemExited]:
-		if !ok {
-			return ErrHandleClose
-		}
-		// If the expected notification is hcsNotificationSystemExited which of the two selects
-		// chosen is random. Return the raw error if hcsNotificationSystemExited is expected
-		if channels[hcsNotificationSystemExited] == expectedChannel {
-			return err
-		}
-		return ErrUnexpectedContainerExit
-	case _, ok := <-channels[hcsNotificationServiceDisconnect]:
-		if !ok {
-			return ErrHandleClose
-		}
-		// hcsNotificationServiceDisconnect should never be an expected notification
-		// it does not need the same handling as hcsNotificationSystemExited
-		return ErrUnexpectedProcessAbort
-	case <-c:
-		return ErrTimeout
+	case r := <-done:
+		return r.doc, r.err
+	case <-timer:
+		_ = computecore.HcsCancelOperation(ctx, op)
+		return "", ErrTimeout
+	case <-ctx.Done():
+		_ = computecore.HcsCancelOperation(ctx, op)
+		return "", ctx.Err()
 	}
 }

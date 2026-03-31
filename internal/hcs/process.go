@@ -14,17 +14,17 @@ import (
 
 	"go.opencensus.io/trace"
 
+	"github.com/Microsoft/hcsshim/internal/computecore"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/protocol/guestrequest"
-	"github.com/Microsoft/hcsshim/internal/vmcompute"
 )
 
 type Process struct {
 	handleLock          sync.RWMutex
-	handle              vmcompute.HcsProcess
+	handle              computecore.HcsProcess
 	processID           int
 	system              *System
 	hasCachedStdio      bool
@@ -32,7 +32,6 @@ type Process struct {
 	stdin               io.WriteCloser
 	stdout              io.ReadCloser
 	stderr              io.ReadCloser
-	callbackNumber      uintptr
 	killSignalDelivered bool
 
 	closedWaitOnce sync.Once
@@ -43,7 +42,7 @@ type Process struct {
 
 var _ cow.Process = &Process{}
 
-func newProcess(process vmcompute.HcsProcess, processID int, computeSystem *System) *Process {
+func newProcess(process computecore.HcsProcess, processID int, computeSystem *System) *Process {
 	return &Process{
 		handle:    process,
 		processID: processID,
@@ -106,10 +105,12 @@ func (process *Process) Signal(ctx context.Context, options interface{}) (bool, 
 		return false, err
 	}
 
-	resultJSON, err := vmcompute.HcsSignalProcess(ctx, process.handle, string(optionsb))
-	events := processHcsResult(ctx, resultJSON)
+	resultJSON, err := withOperation(ctx, func(op computecore.HcsOperation) error {
+		return computecore.HcsSignalProcess(ctx, process.handle, op, string(optionsb))
+	})
 	delivered, err := process.processSignalResult(ctx, err)
 	if err != nil {
+		events := processHcsResult(ctx, resultJSON)
 		err = makeProcessError(process, operation, err, events)
 	}
 	return delivered, err
@@ -171,7 +172,9 @@ func (process *Process) Kill(ctx context.Context) (bool, error) {
 	}
 	defer newProcessHandle.Close()
 
-	resultJSON, err := vmcompute.HcsTerminateProcess(ctx, newProcessHandle.handle)
+	resultJSON, err := withOperation(ctx, func(op computecore.HcsOperation) error {
+		return computecore.HcsTerminateProcess(ctx, newProcessHandle.handle, op, "")
+	})
 	if err != nil {
 		// We still need to check these two cases, as processes may still be killed by an
 		// external actor (human operator, OOM, random script etc).
@@ -194,9 +197,9 @@ func (process *Process) Kill(ctx context.Context) (bool, error) {
 			return true, nil
 		}
 	}
-	events := processHcsResult(ctx, resultJSON)
 	delivered, err := newProcessHandle.processSignalResult(ctx, err)
 	if err != nil {
+		events := processHcsResult(ctx, resultJSON)
 		err = makeProcessError(newProcessHandle, operation, err, events)
 	}
 
@@ -218,15 +221,18 @@ func (process *Process) waitBackground() {
 		trace.Int64Attribute("pid", int64(process.processID)))
 
 	var (
-		err            error
-		exitCode       = -1
-		propertiesJSON string
-		resultJSON     string
+		err        error
+		exitCode   = -1
+		resultJSON string
 	)
 
-	err = waitForNotification(ctx, process.callbackNumber, hcsNotificationProcessExited, nil)
-	if err != nil {
-		err = makeProcessError(process, operation, err, nil)
+	process.handleLock.RLock()
+	handle := process.handle
+	process.handleLock.RUnlock()
+
+	_, waitErr := computecore.HcsWaitForProcessExit(ctx, handle, 0xFFFFFFFF)
+	if waitErr != nil {
+		err = makeProcessError(process, operation, waitErr, nil)
 		log.G(ctx).WithError(err).Error("failed wait")
 	} else {
 		process.handleLock.RLock()
@@ -234,13 +240,15 @@ func (process *Process) waitBackground() {
 
 		// Make sure we didn't race with Close() here
 		if process.handle != 0 {
-			propertiesJSON, resultJSON, err = vmcompute.HcsGetProcessProperties(ctx, process.handle)
-			events := processHcsResult(ctx, resultJSON)
+			resultJSON, err = withOperation(ctx, func(op computecore.HcsOperation) error {
+				return computecore.HcsGetProcessProperties(ctx, process.handle, op, "")
+			})
 			if err != nil {
+				events := processHcsResult(ctx, resultJSON)
 				err = makeProcessError(process, operation, err, events)
 			} else {
 				properties := &hcsschema.ProcessStatus{}
-				err = json.Unmarshal([]byte(propertiesJSON), properties)
+				err = json.Unmarshal([]byte(resultJSON), properties)
 				if err != nil {
 					err = makeProcessError(process, operation, err, nil)
 				} else {
@@ -303,9 +311,11 @@ func (process *Process) ResizeConsole(ctx context.Context, width, height uint16)
 		return err
 	}
 
-	resultJSON, err := vmcompute.HcsModifyProcess(ctx, process.handle, string(modifyRequestb))
-	events := processHcsResult(ctx, resultJSON)
+	resultJSON, err := withOperation(ctx, func(op computecore.HcsOperation) error {
+		return computecore.HcsModifyProcess(ctx, process.handle, op, string(modifyRequestb))
+	})
 	if err != nil {
+		events := processHcsResult(ctx, resultJSON)
 		return makeProcessError(process, operation, err, events)
 	}
 
@@ -352,9 +362,21 @@ func (process *Process) StdioLegacy() (_ io.WriteCloser, _ io.ReadCloser, _ io.R
 		return stdin, stdout, stderr, nil
 	}
 
-	processInfo, resultJSON, err := vmcompute.HcsGetProcessInfo(ctx, process.handle)
-	events := processHcsResult(ctx, resultJSON)
+	processInfo, resultJSON, err := func() (computecore.HcsProcessInformation, string, error) {
+		op, err := computecore.HcsCreateOperation(ctx, 0, 0)
+		if err != nil {
+			return computecore.HcsProcessInformation{}, "", err
+		}
+		defer computecore.HcsCloseOperation(ctx, op)
+
+		if err := computecore.HcsGetProcessInfo(ctx, process.handle, op); err != nil {
+			return computecore.HcsProcessInformation{}, "", err
+		}
+		processInfo, resultJSON, err := computecore.HcsWaitForOperationResultAndProcessInfo(ctx, op, 0xFFFFFFFF)
+		return processInfo, resultJSON, err
+	}()
 	if err != nil {
+		events := processHcsResult(ctx, resultJSON)
 		return nil, nil, nil, makeProcessError(process, operation, err, events)
 	}
 
@@ -406,9 +428,11 @@ func (process *Process) CloseStdin(ctx context.Context) (err error) {
 			return err
 		}
 
-		resultJSON, err := vmcompute.HcsModifyProcess(ctx, process.handle, string(modifyRequestb))
-		events := processHcsResult(ctx, resultJSON)
+		resultJSON, err := withOperation(ctx, func(op computecore.HcsOperation) error {
+			return computecore.HcsModifyProcess(ctx, process.handle, op, string(modifyRequestb))
+		})
 		if err != nil {
+			events := processHcsResult(ctx, resultJSON)
 			return makeProcessError(process, operation, err, events)
 		}
 	}
@@ -505,13 +529,7 @@ func (process *Process) Close() (err error) {
 	}
 	process.stdioLock.Unlock()
 
-	if err = process.unregisterCallback(ctx); err != nil {
-		return makeProcessError(process, operation, err, nil)
-	}
-
-	if err = vmcompute.HcsCloseProcess(ctx, process.handle); err != nil {
-		return makeProcessError(process, operation, err, nil)
-	}
+	computecore.HcsCloseProcess(ctx, process.handle)
 
 	process.handle = 0
 	process.closedWaitOnce.Do(func() {
@@ -519,64 +537,6 @@ func (process *Process) Close() (err error) {
 		process.waitError = ErrAlreadyClosed
 		close(process.waitBlock)
 	})
-
-	return nil
-}
-
-func (process *Process) registerCallback(ctx context.Context) error {
-	callbackContext := &notificationWatcherContext{
-		channels:  newProcessChannels(),
-		systemID:  process.SystemID(),
-		processID: process.processID,
-	}
-
-	callbackMapLock.Lock()
-	callbackNumber := nextCallback
-	nextCallback++
-	callbackMap[callbackNumber] = callbackContext
-	callbackMapLock.Unlock()
-
-	callbackHandle, err := vmcompute.HcsRegisterProcessCallback(ctx, process.handle, notificationWatcherCallback, callbackNumber)
-	if err != nil {
-		return err
-	}
-	callbackContext.handle = callbackHandle
-	process.callbackNumber = callbackNumber
-
-	return nil
-}
-
-func (process *Process) unregisterCallback(ctx context.Context) error {
-	callbackNumber := process.callbackNumber
-
-	callbackMapLock.RLock()
-	callbackContext := callbackMap[callbackNumber]
-	callbackMapLock.RUnlock()
-
-	if callbackContext == nil {
-		return nil
-	}
-
-	handle := callbackContext.handle
-
-	if handle == 0 {
-		return nil
-	}
-
-	// vmcompute.HcsUnregisterProcessCallback has its own synchronization to
-	// wait for all callbacks to complete. We must NOT hold the callbackMapLock.
-	err := vmcompute.HcsUnregisterProcessCallback(ctx, handle)
-	if err != nil {
-		return err
-	}
-
-	closeChannels(callbackContext.channels)
-
-	callbackMapLock.Lock()
-	delete(callbackMap, callbackNumber)
-	callbackMapLock.Unlock()
-
-	handle = 0 //nolint:ineffassign
 
 	return nil
 }
